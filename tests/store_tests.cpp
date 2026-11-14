@@ -5,6 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <thread>
+#include <type_traits>
 
 namespace {
 
@@ -13,6 +14,12 @@ using mmdb::Lookup;
 using mmdb::Service;
 using mmdb::Status;
 using mmdb::Value;
+
+static_assert(std::is_default_constructible_v<Service>);
+static_assert(!std::is_copy_constructible_v<Service>);
+static_assert(!std::is_copy_assignable_v<Service>);
+static_assert(!std::is_move_constructible_v<Service>);
+static_assert(!std::is_move_assignable_v<Service>);
 
 void check(bool condition, const char* expression, int line) {
 	if (!condition) throw std::runtime_error("Line " + std::to_string(line) + ": " + expression);

@@ -17,6 +17,13 @@ public:
 	static constexpr std::size_t max_name = 63;
 
 	Service() = default;
+
+	Service(const Service&) = delete;
+	Service& operator=(const Service&) = delete;
+
+	Service(Service&&) = delete;
+	Service& operator=(Service&&) = delete;
+
 	Status attach(Owner owner);
 	bool attached(Owner owner) const noexcept { return scripts_.contains(owner); }
 	void detach(Owner owner) noexcept;
