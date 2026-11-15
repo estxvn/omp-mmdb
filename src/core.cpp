@@ -51,6 +51,24 @@ bool valid_utf8(std::string_view text) noexcept {
 	return true;
 }
 
+namespace {
+bool valid_dotted_decimal(std::string_view text) noexcept {
+	for (unsigned i = 0; i < 4; ++i) {
+		const auto dot = text.find('.');
+		const auto octet = text.substr(0, dot);
+		if (octet.empty() || octet.size() > 3 || (octet.size() > 1 && octet.front() == '0')) return false;
+
+		unsigned value = 0;
+		const auto* end = octet.data() + octet.size();
+		const auto result = std::from_chars(octet.data(), end, value);
+		if (result.ec != std::errc{} || result.ptr != end || value > 255) return false;
+		if (dot == std::string_view::npos) return i == 3;
+		text.remove_prefix(dot + 1);
+	}
+	return false;
+}
+} // namespace
+
 Status IpAddress::parse(std::string_view text, IpAddress& out) noexcept {
 	if (text.empty() || text.size() >= INET6_ADDRSTRLEN) return Status::InvalidIp;
 	for (const char character : text) {
@@ -58,10 +76,15 @@ Status IpAddress::parse(std::string_view text, IpAddress& out) noexcept {
 		if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
 			  (c >= 'A' && c <= 'F') || c == ':' || c == '.')) return Status::InvalidIp;
 	}
+	const auto colon = text.rfind(':');
+	const bool v6 = colon != std::string_view::npos;
+	if ((!v6 || text.find('.') != std::string_view::npos) &&
+		!valid_dotted_decimal(v6 ? text.substr(colon + 1) : text)) return Status::InvalidIp;
+
 	char numeric[INET6_ADDRSTRLEN]{};
 	std::memcpy(numeric, text.data(), text.size());
 	IpAddress parsed;
-	parsed.v6 = text.find(':') != std::string_view::npos;
+	parsed.v6 = v6;
 	if (inet_pton(parsed.v6 ? AF_INET6 : AF_INET, numeric, parsed.bytes.data()) != 1) return Status::InvalidIp;
 	out = parsed;
 	return Status::Ok;

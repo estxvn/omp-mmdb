@@ -34,7 +34,10 @@ In the pinned open.mp v1.6.7.3218 runtime, ordinary script exit callbacks run be
 | `mmdb_get_size` | `name, ip, path, &size` | Write the array length, map pair count, UTF-8 byte count or binary byte count |
 | `mmdb_get_prefix` | `name, ip, &prefix` | Write the prefix length for the address family supplied |
 
-Use numeric IPv4 or IPv6 without brackets, ports, CIDR suffixes or IPv6 zone identifiers. Paths are JSON Pointers up to 1,024 bytes and 32 tokens. Array indices are zero-based decimal digits with no leading zeros unless the index is `0`. Use `~0` for a tilde and `~1` for a slash inside a token.
+Use numeric IPv4 or IPv6 without brackets, ports, CIDR suffixes or IPv6 zone identifiers.
+IPv4 addresses and dotted-decimal tails in mixed IPv6 addresses must contain exactly four decimal octets from 0 to 255, separated by dots. Leading zeros are forbidden in decimal octets. IPv6 hexadecimal groups may contain leading zeros.
+
+Paths are JSON Pointers up to 1,024 bytes and 32 tokens. Array indices are zero-based decimal digits with no leading zeros unless the index is `0`. Use `~0` for a tilde and `~1` for a slash inside a token.
 
 `mmdb_get_int` accepts `int32` and unsigned integer types whose value fits a signed cell. `mmdb_get_text` preserves all integer values including `uint128`. Binary output uses two hexadecimal digits per byte, preserves zero bytes and supports up to 32,767 input bytes per call. Pawn strings cannot represent embedded NULs. `mmdb_get_string` validates UTF-8 and supports up to 1,048,575 source bytes. `mmdb_get_float` rejects non-finite values and magnitude outside the finite nonzero Pawn Float range. Double values within range round to the precision of a Pawn Float.
 
