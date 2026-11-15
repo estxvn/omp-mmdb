@@ -11,8 +11,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* bytes, std::size_t siz
 	mmdb::Path path;
 	if (path.parse(input) == mmdb::Status::Ok) {
 		// Touch every returned token, checking terminators under ASan.
-		for (const char* part : path.parts) {
-			if (!part) break;
+		for (const char* part : path.tokens()) {
 			(void)mmdb::valid_utf8(std::string_view(part));
 		}
 	}

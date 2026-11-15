@@ -2,8 +2,10 @@
 
 #include <maxminddb.h>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -25,13 +27,23 @@ struct IpAddress {
 };
 
 // An empty JSON Pointer selects the root. Escapes ~0 and ~1 decode to ~ and /.
-struct Path {
-	std::array<char, 1025> storage{};
-	std::array<const char*, 33> parts{};
+class Path final {
+public:
 	Path() = default;
 	Path(const Path&) = delete;
 	Path& operator=(const Path&) = delete;
-	Status parse(std::string_view text) noexcept;
+	Path(Path&&) = delete;
+	Path& operator=(Path&&) = delete;
+	[[nodiscard]] Status parse(std::string_view text) noexcept;
+	bool valid() const noexcept { return valid_; }
+	// Tokens are NUL-terminated and borrow from this Path until the next parse.
+	std::span<const char* const> tokens() const noexcept { return {parts_.data(), token_count_}; }
+
+private:
+	std::array<char, 1025> storage_{};
+	bool valid_ = false;
+	std::array<const char*, 32> parts_{};
+	std::size_t token_count_ = 0;
 };
 
 class Database final {

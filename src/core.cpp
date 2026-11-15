@@ -91,26 +91,32 @@ Status IpAddress::parse(std::string_view text, IpAddress& out) noexcept {
 }
 
 Status Path::parse(std::string_view text) noexcept {
-	parts.fill(nullptr);
-	if (text.size() > 1024 || !valid_utf8(text) || (!text.empty() && text.front() != '/')) return Status::InvalidPath;
-	if (text.empty()) return Status::Ok;
+	valid_ = false;
+	token_count_ = 0;
+	if (text.size() > storage_.size() - 1 || !valid_utf8(text) || (!text.empty() && text.front() != '/')) return Status::InvalidPath;
+	if (text.empty()) {
+		valid_ = true;
+		return Status::Ok;
+	}
 	std::size_t token = 0, write = 0;
-	parts[token++] = storage.data();
+	parts_[token++] = storage_.data();
 	for (std::size_t i = 1; i < text.size(); ++i) {
 		char c = text[i];
 		if (c == '/') {
-			if (token == 32) { parts.fill(nullptr); return Status::InvalidPath; }
-			storage[write++] = '\0';
-			parts[token++] = storage.data() + write;
+			if (token == parts_.size()) return Status::InvalidPath;
+			storage_[write++] = '\0';
+			parts_[token++] = storage_.data() + write;
 			continue;
 		}
 		if (c == '~') {
-			if (++i == text.size() || (text[i] != '0' && text[i] != '1')) { parts.fill(nullptr); return Status::InvalidPath; }
+			if (++i == text.size() || (text[i] != '0' && text[i] != '1')) return Status::InvalidPath;
 			c = text[i] == '0' ? '~' : '/';
 		}
-		storage[write++] = c;
+		storage_[write++] = c;
 	}
-	storage[write] = '\0';
+	storage_[write] = '\0';
+	token_count_ = token;
+	valid_ = true;
 	return Status::Ok;
 }
 
@@ -301,12 +307,12 @@ Status Lookup::get(std::string_view path, Value& out) const noexcept {
 }
 
 Status Lookup::get(const Path& path, Value& out) const noexcept {
+	if (!path.valid()) return Status::InvalidPath;
 	if (!database_) return Status::InvalidArgument;
 	MMDB_entry_data_s value{};
 	auto status = read_entry(entry_, nullptr, value);
 	if (status != Status::Ok) return status;
-	for (const char* token : path.parts) {
-		if (!token) break;
+	for (const char* token : path.tokens()) {
 		if (value.type == MMDB_DATA_TYPE_ARRAY) {
 			status = check_index(token, value.data_size);
 			if (status != Status::Ok) return status;

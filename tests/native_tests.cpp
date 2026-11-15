@@ -286,6 +286,17 @@ int main() {
 		CHECK(a.call("mmdb_has_field", {name, ip, path, out}) == Status::Ok && a.at(out) == 0);
 		a.string(path, "malformed");
 		CHECK(a.call("mmdb_has_field", {name, ip, path, out}) == Status::InvalidPath);
+		constexpr cell long_path_address = 8192;
+		std::string long_path(1024, 'a');
+		long_path.front() = '/';
+		a.string(long_path_address, long_path);
+		a.at(out) = -1;
+		CHECK(a.call("mmdb_get_type", {name, ip, long_path_address, out}) == Status::NoField);
+		CHECK(a.at(out) == -1);
+		long_path.push_back('a');
+		a.string(long_path_address, long_path);
+		CHECK(a.call("mmdb_get_type", {name, ip, long_path_address, out}) == Status::InvalidArgument);
+		CHECK(a.at(out) == -1);
 		CHECK(a.call("mmdb_get_prefix", {name, ip, out}) == Status::Ok);
 		CHECK(a.call("mmdb_get_database_type", {name, text, 100, out}) == Status::Ok);
 		CHECK(a.call("mmdb_get_build_epoch", {name, text, 100, out}) == Status::Ok);

@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <iterator>
+#include <type_traits>
 
 #ifndef MMDB_FIXTURE_DIR
 #define MMDB_FIXTURE_DIR "lib/libmaxminddb/t/maxmind-db/test-data"
@@ -100,28 +101,30 @@ void test_ip() {
 void test_path_and_utf8() {
 	Path path;
 	EXPECT(path.parse(""), Ok);
-	CHECK(path.parts[0] == nullptr);
+	CHECK(path.valid() && path.tokens().empty());
 	EXPECT(path.parse("/city/names/en"), Ok);
-	CHECK(std::string_view(path.parts[0]) == "city");
-	CHECK(std::string_view(path.parts[1]) == "names");
-	CHECK(std::string_view(path.parts[2]) == "en");
-	CHECK(path.parts[3] == nullptr);
+	CHECK(path.valid() && path.tokens().size() == 3);
+	CHECK(std::string_view(path.tokens()[0]) == "city");
+	CHECK(std::string_view(path.tokens()[1]) == "names");
+	CHECK(std::string_view(path.tokens()[2]) == "en");
 	EXPECT(path.parse("/~0/~1/~01//"), Ok);
-	CHECK(std::string_view(path.parts[0]) == "~");
-	CHECK(std::string_view(path.parts[1]) == "/");
-	CHECK(std::string_view(path.parts[2]) == "~1");
-	CHECK(std::string_view(path.parts[3]).empty());
-	CHECK(std::string_view(path.parts[4]).empty());
+	CHECK(path.tokens().size() == 5);
+	CHECK(std::string_view(path.tokens()[0]) == "~");
+	CHECK(std::string_view(path.tokens()[1]) == "/");
+	CHECK(std::string_view(path.tokens()[2]) == "~1");
+	CHECK(std::string_view(path.tokens()[3]).empty());
+	CHECK(std::string_view(path.tokens()[4]).empty());
 	EXPECT(path.parse("/"), Ok);
-	CHECK(std::string_view(path.parts[0]).empty() && path.parts[1] == nullptr);
+	CHECK(path.tokens().size() == 1 && std::string_view(path.tokens().front()).empty());
 	for (const char* text : {"no-slash", "~", "/~", "/~2", "/x~x"}) EXPECT(path.parse(text), InvalidPath);
 	EXPECT(path.parse(std::string_view("/a\0b", 4)), InvalidPath);
 	EXPECT(path.parse(std::string(1025, '/')), InvalidPath);
 	std::string boundary;
 	for (int i = 0; i != 32; ++i) boundary += "/a";
 	EXPECT(path.parse(boundary), Ok);
-	CHECK(path.parts[32] == nullptr);
+	CHECK(path.tokens().size() == 32);
 	EXPECT(path.parse(boundary + "/b"), InvalidPath);
+	CHECK(!path.valid() && path.tokens().empty());
 	EXPECT(path.parse("/" + std::string(1023, 'a')), Ok);
 	EXPECT(path.parse("/" + std::string(1024, 'a')), InvalidPath);
 
@@ -129,6 +132,40 @@ void test_path_and_utf8() {
 	CHECK(valid_utf8("plain ASCII"));
 	CHECK(valid_utf8("\xc2\xa2\xe2\x98\xaf\xf0\x9f\x8c\x8d"));
 	for (const std::string& text : {std::string("\x80"), std::string("\xc0\xaf"), std::string("\xe0\x80\xaf"), std::string("\xed\xa0\x80"), std::string("\xf4\x90\x80\x80"), std::string("\xf5\x80\x80\x80"), std::string("\xc2"), std::string("\xe2\x82"), std::string("\xf0\x9f\x8c"), std::string("\xc2\x20")}) CHECK(!valid_utf8(text));
+}
+
+void test_path_lookup_state() {
+	static_assert(!std::is_copy_constructible_v<Path> && !std::is_copy_assignable_v<Path>);
+	static_assert(!std::is_move_constructible_v<Path> && !std::is_move_assignable_v<Path>);
+
+	const auto found = lookup(open("MaxMind-DB-test-decoder.mmdb"), "1.1.1.1");
+	Value value = field(found, "/uint32");
+	const auto sentinel = value.data;
+	Path path;
+	const auto check_invalid = [&] {
+		EXPECT(found.get(path, value), InvalidPath);
+		CHECK(value.data.has_data == sentinel.has_data && value.data.type == sentinel.type);
+		CHECK(value.data.uint32 == sentinel.uint32 && value.data.data_size == sentinel.data_size);
+		CHECK(value.data.offset == sentinel.offset && value.data.offset_to_next == sentinel.offset_to_next);
+		CHECK(!path.valid() && path.tokens().empty());
+	};
+	check_invalid();
+	for (const std::string_view invalid : {"uint32", "/uint32/~2"}) {
+		EXPECT(path.parse("/uint32"), Ok);
+		EXPECT(found.get(path, value), Ok);
+		CHECK(value.data.type == MMDB_DATA_TYPE_UINT32 && value.data.uint32 == 268435456);
+		EXPECT(path.parse(invalid), InvalidPath);
+		check_invalid();
+	}
+	EXPECT(path.parse(""), Ok);
+	CHECK(path.valid() && path.tokens().empty());
+	EXPECT(found.get(path, value), Ok);
+	CHECK(value.data.has_data && value.data.type == MMDB_DATA_TYPE_MAP);
+	EXPECT(path.parse("/array/2"), Ok);
+	EXPECT(found.get(path, value), Ok);
+	std::int32_t integer = 0;
+	EXPECT(value.integer(integer), Ok);
+	CHECK(integer == 3);
 }
 
 void test_conversion() {
@@ -243,6 +280,13 @@ void test_real_types() {
 	EXPECT(found.get("/array/99999999999999999999", value), NoField);
 	EXPECT(found.get("/uint16/nested", value), NoField);
 	EXPECT(found.get("bad", value), InvalidPath);
+	std::string long_path(1024, 'a');
+	long_path.front() = '/';
+	EXPECT(found.get(long_path, value), NoField);
+	EXPECT(value.integer(integer), Ok); CHECK(integer == 3);
+	long_path.push_back('a');
+	EXPECT(found.get(long_path, value), InvalidPath);
+	EXPECT(value.integer(integer), Ok); CHECK(integer == 3);
 	value = field(found, ""); CHECK(value.data.type == MMDB_DATA_TYPE_MAP);
 	EXPECT(value.string(string), TypeMismatch);
 	const auto nested_db = open("MaxMind-DB-test-nested.mmdb");
@@ -250,6 +294,51 @@ void test_real_types() {
 	CHECK(field(nested, "/map1/map2/array").data.data_size > 0);
 	value = field(nested, "/map1/map2/array/0/map3/c");
 	EXPECT(value.integer(integer), Ok); CHECK(integer == 3);
+}
+
+void test_referenced_containers() {
+	const auto database = open("GeoIP2-City-Test.mmdb");
+	const auto found = lookup(database, "2.125.160.216");
+	const auto& raw = database->raw();
+
+	// The pinned fixture encodes two-byte pointers to the country map and subdivisions array.
+	CHECK(raw.data_section_size > 752);
+	CHECK(raw.data_section[593] == 0x20 && raw.data_section[594] == 0xa1);
+	CHECK(raw.data_section[751] == 0x21 && raw.data_section[752] == 0xb4);
+
+	const auto country = field(found, "/country");
+	CHECK(country.data.type == MMDB_DATA_TYPE_MAP);
+	CHECK(country.data.offset == 161);
+	CHECK(country.data.data_size == 3);
+	const auto subdivisions = field(found, "/subdivisions");
+	CHECK(subdivisions.data.type == MMDB_DATA_TYPE_ARRAY);
+	CHECK(subdivisions.data.offset == 436);
+	CHECK(subdivisions.data.data_size == 2);
+
+	std::string_view text;
+	EXPECT(field(found, "/country/iso_code").string(text), Ok);
+	CHECK(text == "GB");
+	EXPECT(field(found, "/country/names/en").string(text), Ok);
+	CHECK(text == "United Kingdom");
+	EXPECT(field(found, "/subdivisions/0/iso_code").string(text), Ok);
+	CHECK(text == "ENG");
+	EXPECT(field(found, "/subdivisions/1/iso_code").string(text), Ok);
+	CHECK(text == "WBK");
+	auto value = field(found, "/subdivisions/1/names/en");
+	EXPECT(value.string(text), Ok);
+	CHECK(text == "West Berkshire");
+
+	const auto sentinel = value.data;
+	const auto expect_failure = [&](const char* path, Status expected) {
+		CHECK(found.get(path, value) == expected);
+		CHECK(value.data.has_data == sentinel.has_data && value.data.type == sentinel.type);
+		CHECK(value.data.utf8_string == sentinel.utf8_string && value.data.data_size == sentinel.data_size);
+		CHECK(value.data.offset == sentinel.offset && value.data.offset_to_next == sentinel.offset_to_next);
+	};
+	expect_failure("/country/ISO_CODE", Status::NoField);
+	expect_failure("/subdivisions/2", Status::NoField);
+	expect_failure("/subdivisions/1/iso_code/name", Status::NoField);
+	expect_failure("/subdivisions/01", Status::InvalidPath);
 }
 
 void test_ip_databases() {
@@ -399,8 +488,9 @@ int main(int argc, char** argv) {
 	else if (argc != 1) { std::cerr << "usage: omp_mmdb_core_tests [--fixtures DIRECTORY]\n"; return 2; }
 	try {
 		CHECK(std::filesystem::is_regular_file(fixtures / "MaxMind-DB-test-decoder.mmdb"));
-		test_ip(); test_path_and_utf8(); test_conversion(); test_real_types();
-		test_ip_databases(); test_snapshot_and_sustained_queries(); test_bad_databases();
+		test_ip(); test_path_and_utf8(); test_path_lookup_state(); test_conversion(); test_real_types();
+		test_referenced_containers(); test_ip_databases(); test_snapshot_and_sustained_queries();
+		test_bad_databases();
 		std::cout << "PASS: " << checks << " checks\n";
 		return 0;
 	} catch (const std::exception& error) {
