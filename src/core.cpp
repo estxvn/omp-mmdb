@@ -344,7 +344,13 @@ Status read_entry(MMDB_entry_s entry, const char* token, MMDB_entry_data_s& valu
 	const int error = MMDB_aget_value(&entry, &value, path);
 	if (error == MMDB_LOOKUP_PATH_DOES_NOT_MATCH_DATA_ERROR) return Status::NoField;
 	if (error != MMDB_SUCCESS || !value.has_data) return Status::DecoderError;
-	return Status::Ok;
+	switch (value.type) {
+		case MMDB_DATA_TYPE_UTF8_STRING: case MMDB_DATA_TYPE_DOUBLE: case MMDB_DATA_TYPE_BYTES:
+		case MMDB_DATA_TYPE_UINT16: case MMDB_DATA_TYPE_UINT32: case MMDB_DATA_TYPE_MAP:
+		case MMDB_DATA_TYPE_INT32: case MMDB_DATA_TYPE_UINT64: case MMDB_DATA_TYPE_UINT128:
+		case MMDB_DATA_TYPE_ARRAY: case MMDB_DATA_TYPE_BOOLEAN: case MMDB_DATA_TYPE_FLOAT: return Status::Ok;
+		default: return Status::DecoderError;
+	}
 }
 
 Status check_index(std::string_view token, std::uint32_t size) noexcept {
@@ -382,13 +388,6 @@ Status Lookup::get(const Path& path, Value& out) const noexcept {
 		if (status != Status::Ok) return status;
 	}
 
-	switch (value.type) {
-		case MMDB_DATA_TYPE_UTF8_STRING: case MMDB_DATA_TYPE_DOUBLE: case MMDB_DATA_TYPE_BYTES:
-		case MMDB_DATA_TYPE_UINT16: case MMDB_DATA_TYPE_UINT32: case MMDB_DATA_TYPE_MAP:
-		case MMDB_DATA_TYPE_INT32: case MMDB_DATA_TYPE_UINT64: case MMDB_DATA_TYPE_UINT128:
-		case MMDB_DATA_TYPE_ARRAY: case MMDB_DATA_TYPE_BOOLEAN: case MMDB_DATA_TYPE_FLOAT: break;
-		default: return Status::DecoderError;
-	}
 	out.data = value;
 	return Status::Ok;
 }
