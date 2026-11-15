@@ -1,7 +1,7 @@
 #include "core.hpp"
 #include <algorithm>
+#include <bit>
 #include <charconv>
-#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <limits>
@@ -220,15 +220,63 @@ Status Value::integer(std::int32_t& out) const noexcept {
 	out = static_cast<std::int32_t>(value);
 	return Status::Ok;
 }
-Status Value::floating(float& out) const noexcept {
-	double value;
-	if (data.type == MMDB_DATA_TYPE_FLOAT) value = data.float_value;
-	else if (data.type == MMDB_DATA_TYPE_DOUBLE) value = data.double_value;
-	else return Status::TypeMismatch;
-	if (!std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max() ||
-		(value != 0 && std::abs(value) < std::numeric_limits<float>::denorm_min())) return Status::OutOfRange;
-	out = static_cast<float>(value);
+namespace {
+static_assert(std::numeric_limits<float>::is_iec559 && std::numeric_limits<float>::digits == 24 &&
+	std::bit_cast<std::uint32_t>(1.0F) == 0x3f800000U);
+static_assert(std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::digits == 53 &&
+	std::bit_cast<std::uint64_t>(1.0) == 0x3ff0000000000000ULL);
+
+std::uint32_t round_significand(std::uint64_t significand, unsigned shift) noexcept {
+	const auto retained = static_cast<std::uint32_t>(significand >> shift);
+	const auto halfway = std::uint64_t{1} << (shift - 1U);
+	const auto remainder = significand & ((halfway << 1U) - 1U);
+	return retained + (remainder > halfway || (remainder == halfway && (retained & 1U) != 0));
+}
+} // namespace
+
+Status Value::floating_bits(std::uint32_t& out) const noexcept {
+	if (data.type == MMDB_DATA_TYPE_FLOAT) {
+		const auto bits = std::bit_cast<std::uint32_t>(data.float_value);
+		if ((bits & 0x7f800000U) == 0x7f800000U) return Status::OutOfRange;
+		out = bits;
+		return Status::Ok;
+	}
+	if (data.type != MMDB_DATA_TYPE_DOUBLE) return Status::TypeMismatch;
+
+	const auto bits = std::bit_cast<std::uint64_t>(data.double_value);
+	const auto sign = static_cast<std::uint32_t>(bits >> 32U) & 0x80000000U;
+	const auto magnitude = bits & 0x7fffffffffffffffULL;
+	if (magnitude == 0) {
+		out = sign;
+		return Status::Ok;
+	}
+	// Binary64 encodings of 2^-149 and the largest finite binary32. Check the
+	// input before rounding, including NaNs and infinities above the upper bound.
+	if (magnitude < 0x36a0000000000000ULL || magnitude > 0x47efffffe0000000ULL)
+		return Status::OutOfRange;
+
+	const auto significand = (magnitude & 0x000fffffffffffffULL) | 0x0010000000000000ULL;
+	const auto exponent = static_cast<unsigned>(magnitude >> 52U);
+	constexpr unsigned binary32_min_normal = 1023U - 126U; // In binary64's exponent encoding.
+	constexpr unsigned precision_difference = 53U - 24U;
+	if (exponent < binary32_min_normal) {
+		// Round in units of 2^-149. The range check bounds this shift to [30, 52].
+		out = sign | round_significand(significand, precision_difference + binary32_min_normal - exponent);
+	} else {
+		// The rounded significand includes the leading bit. Addition also handles
+		// a carry into the next exponent when rounding up at a binade boundary.
+		out = sign | (((exponent - binary32_min_normal) << 23U) +
+			round_significand(significand, precision_difference));
+	}
 	return Status::Ok;
+}
+
+Status Value::floating(float& out) const noexcept {
+	std::uint32_t bits;
+	const auto status = floating_bits(bits);
+	// Copy the object representation without materializing a floating-point value.
+	if (status == Status::Ok) std::memcpy(&out, &bits, sizeof(bits));
+	return status;
 }
 Status Value::boolean(bool& out) const noexcept {
 	if (data.type != MMDB_DATA_TYPE_BOOLEAN) return Status::TypeMismatch;

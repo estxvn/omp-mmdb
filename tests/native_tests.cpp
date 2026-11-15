@@ -1,14 +1,20 @@
 #include "pawn_bridge.hpp"
+#include "floating_point_environment.hpp"
 
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <new>
 #include <set>
+#include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 using namespace mmdb;
@@ -188,10 +194,162 @@ void check_ip_natives(PawnBridge& bridge) {
 	CHECK(vm.call("mmdb_get_prefix", {name, ip, out}) == Status::NoRecord && vm.at(out) == sentinel);
 	bridge.detach(&vm.amx);
 }
+
+void check_floating_point_environment() {
+	constexpr std::uint32_t sentinel = 0x4b8ace11;
+	constexpr std::array binary32{
+		0x00000000U, 0x00000001U, 0x00000002U, 0x007ffffeU, 0x007fffffU, 0x00800000U,
+		0x00800001U, 0x3f800001U, 0x7f7ffffeU, 0x7f7fffffU, 0x7f800000U, 0x7f800001U, 0x7fc00000U
+	};
+	struct NarrowingCase { std::uint64_t input; std::uint32_t expected; };
+	constexpr NarrowingCase binary64[]{
+		{0x0000000000000000, 0x00000000}, {0x0000000000000001, sentinel},
+		// The contract rejects values outside the range before rounding.
+		{0x369fffffffffffff, sentinel}, {0x36a0000000000000, 0x00000001}, {0x36a0000000000001, 0x00000001},
+		// Midpoint between the first two subnormals and the doubles on either side.
+		{0x36a7ffffffffffff, 0x00000001}, {0x36a8000000000000, 0x00000002}, {0x36a8000000000001, 0x00000002},
+		{0x380fffffc0000000, 0x007fffff}, // Largest subnormal.
+		{0x380fffffdfffffff, 0x007fffff}, {0x380fffffe0000000, 0x00800000}, {0x380fffffe0000001, 0x00800000},
+		{0x380fffffffffffff, 0x00800000}, {0x3810000000000000, 0x00800000}, {0x3810000000000001, 0x00800000},
+		// Normal midpoints that respectively round down and up to an even result.
+		{0x3ff000000fffffff, 0x3f800000}, {0x3ff0000010000000, 0x3f800000}, {0x3ff0000010000001, 0x3f800001},
+		{0x3ff000002fffffff, 0x3f800001}, {0x3ff0000030000000, 0x3f800002}, {0x3ff0000030000001, 0x3f800002},
+		{0x3fffffffefffffff, 0x3fffffff}, {0x3ffffffff0000000, 0x40000000}, {0x3ffffffff0000001, 0x40000000},
+		{0x47efffffdfffffff, 0x7f7fffff}, {0x47efffffe0000000, 0x7f7fffff}, {0x47efffffe0000001, sentinel},
+		{0x7ff0000000000000, sentinel}, {0x7ff0000000000001, sentinel}, {0x7ff8000000000000, sentinel}
+	};
+
+	// The single 24-bit IPv4 node points both branches at the test map.
+	std::string bytes("\0\0\x11\0\0\x11", 6);
+	bytes.append(16, '\0');
+	const auto byte = [&](unsigned number) { bytes.push_back(static_cast<char>(number)); };
+	const auto field = [&](unsigned type, std::size_t size) {
+		CHECK(size < 285);
+		byte((type < 8 ? type << 5 : 0) | static_cast<unsigned>(std::min<std::size_t>(size, 29)));
+		if (type >= 8) byte(type - 7);
+		if (size >= 29) byte(static_cast<unsigned>(size - 29));
+	};
+	const auto string_field = [&](std::string_view value) {
+		field(MMDB_DATA_TYPE_UTF8_STRING, value.size());
+		bytes.append(value);
+	};
+	const auto big_endian = [&](std::uint64_t value, unsigned size) {
+		for (auto shift = size * 8; shift != 0; shift -= 8) {
+			byte(static_cast<unsigned>((value >> (shift - 8)) & 0xff));
+		}
+	};
+
+	struct Query { std::string path; std::uint64_t input; std::uint32_t expected; Status status; };
+	std::vector<Query> queries;
+	const auto numeric_array = [&](std::string_view key, std::size_t size) {
+		string_field(key);
+		field(MMDB_DATA_TYPE_ARRAY, 2 * size);
+	};
+	const auto numeric_value = [&](unsigned type, unsigned size, std::uint64_t input,
+			std::uint32_t expected, std::string_view key, std::size_t index) {
+		for (const auto negative : {false, true}) {
+			const auto bits = input | (std::uint64_t{negative} << (size * 8 - 1));
+			field(type, size);
+			big_endian(bits, size);
+			const auto status = expected == sentinel ? Status::OutOfRange : Status::Ok;
+			const auto result = status == Status::Ok && negative ? expected | 0x80000000U : expected;
+			queries.push_back({"/" + std::string(key) + "/" + std::to_string(2 * index + negative), bits, result, status});
+		}
+	};
+	field(MMDB_DATA_TYPE_MAP, 3);
+	numeric_array("float", binary32.size());
+	for (std::size_t i = 0; i < binary32.size(); ++i) {
+		const auto word = binary32[i];
+		numeric_value(MMDB_DATA_TYPE_FLOAT, 4, word, word < 0x7f800000U ? word : sentinel, "float", i);
+	}
+	numeric_array("double", std::size(binary64));
+	for (std::size_t i = 0; i < std::size(binary64); ++i) {
+		numeric_value(MMDB_DATA_TYPE_DOUBLE, 8, binary64[i].input, binary64[i].expected, "double", i);
+	}
+	string_field("other");
+	field(MMDB_DATA_TYPE_BOOLEAN, 1);
+	queries.push_back({"/other", 1, sentinel, Status::TypeMismatch});
+
+	bytes.append("\xab\xcd\xefMaxMind.com");
+	field(MMDB_DATA_TYPE_MAP, 9);
+	const auto metadata_number = [&](std::string_view key, unsigned type, unsigned value) {
+		string_field(key);
+		field(type, value != 0 ? 1 : 0);
+		if (value != 0) byte(value);
+	};
+	metadata_number("node_count", MMDB_DATA_TYPE_UINT32, 1);
+	metadata_number("record_size", MMDB_DATA_TYPE_UINT16, 24);
+	metadata_number("ip_version", MMDB_DATA_TYPE_UINT16, 4);
+	string_field("database_type");
+	string_field("FloatRegression");
+	string_field("languages");
+	field(MMDB_DATA_TYPE_ARRAY, 1);
+	string_field("en");
+	metadata_number("binary_format_major_version", MMDB_DATA_TYPE_UINT16, 2);
+	metadata_number("binary_format_minor_version", MMDB_DATA_TYPE_UINT16, 0);
+	metadata_number("build_epoch", MMDB_DATA_TYPE_UINT64, 1);
+	string_field("description");
+	field(MMDB_DATA_TYPE_MAP, 0);
+
+	const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+	const auto filename = std::filesystem::temp_directory_path() / ("omp-mmdb-float-" + std::to_string(stamp) + ".mmdb");
+	struct Cleanup {
+		std::filesystem::path path;
+		~Cleanup() {
+			std::error_code error;
+			std::filesystem::remove(path, error);
+		}
+	} cleanup{filename};
+	{
+		std::ofstream fixture(filename, std::ios::binary | std::ios::trunc);
+		fixture.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+		fixture.close();
+		CHECK(fixture.good());
+	}
+
+	Service service;
+	PawnBridge bridge(service);
+	Vm vm;
+	CHECK(bridge.attach(&vm.amx) == Status::Ok);
+	vm.string(name, "floating");
+	const auto utf8 = filename.u8string();
+	vm.string(file, {reinterpret_cast<const char*>(utf8.data()), utf8.size()});
+	vm.string(ip, "1.1.1.1");
+	CHECK(vm.call("mmdb_load", {name, file}) == Status::Ok);
+	std::size_t combinations = 0;
+	const auto original_state = test::FloatingPointEnvironment{}.state();
+	{
+		test::FloatingPointEnvironment environment;
+		combinations = environment.exercise([&](const auto before) {
+			CHECK(environment.state() == before);
+			for (const auto& query : queries) {
+				vm.string(path, query.path);
+				vm.at(out) = std::bit_cast<cell>(sentinel);
+				const auto status = vm.call("mmdb_get_float", {name, ip, path, out});
+				const auto after = environment.state();
+				const auto result = std::bit_cast<std::uint32_t>(vm.at(out));
+				++checks;
+				if (status == query.status && result == query.expected && after == before) continue;
+				std::ostringstream message;
+				message << query.path << std::hex << " input 0x" << query.input
+					<< " returned bits 0x" << result << " (expected 0x" << query.expected << ")"
+					<< std::dec << " and status " << static_cast<int>(status) << " (expected " << static_cast<int>(query.status) << ")"
+					<< std::hex << ". MXCSR 0x" << before.mxcsr << " -> 0x" << after.mxcsr
+					<< ", x87 control word 0x" << before.x87_control << " -> 0x" << after.x87_control
+					<< ", x87 exception flags 0x" << before.x87_exceptions << " -> 0x" << after.x87_exceptions;
+				throw std::runtime_error(message.str());
+			}
+		});
+	}
+	CHECK(test::FloatingPointEnvironment{}.state() == original_state);
+	std::cout << queries.size() << " floating-point queries passed in each of " << combinations << " environments\n";
+	bridge.detach(&vm.amx);
+}
 } // namespace
 
 int main() {
 	try {
+		check_floating_point_environment();
 		Service service;
 		PawnBridge bridge(service);
 		Vm a, b;

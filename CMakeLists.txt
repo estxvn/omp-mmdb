@@ -21,6 +21,8 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(MAXMINDDB_BUILD_BINARIES OFF CACHE BOOL "" FORCE)
 set(MAXMINDDB_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(lib/libmaxminddb EXCLUDE_FROM_ALL)
+include(cmake/BitwiseMaxMindDecoder.cmake)
+omp_mmdb_use_bitwise_decoder()
 # Dependency headers use extensions such as uint128. Keep diagnostics strict on
 # omp-mmdb itself while treating upstream headers as external system headers.
 get_target_property(MMDB_MMDB_INCLUDES maxminddb INTERFACE_INCLUDE_DIRECTORIES)

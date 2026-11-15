@@ -212,9 +212,9 @@ cell AMX_NATIVE_CALL get_scalar(AMX* amx, const cell* p) {
 		if constexpr (Kind == Scalar::Integer) {
 			status = value.integer(number);
 		} else if constexpr (Kind == Scalar::Floating) {
-			float converted = 0;
-			status = value.floating(converted);
-			number = std::bit_cast<std::int32_t>(converted);
+			std::uint32_t bits;
+			status = value.floating_bits(bits);
+			if (status == Status::Ok) number = std::bit_cast<std::int32_t>(bits);
 		} else if constexpr (Kind == Scalar::Boolean) {
 			bool converted = false;
 			status = value.boolean(converted);
