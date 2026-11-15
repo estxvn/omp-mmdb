@@ -1,5 +1,6 @@
 #include "core.hpp"
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -57,7 +58,7 @@ Value field(const Lookup& lookup_result, const char* path) {
 }
 
 void test_ip() {
-	for (const char* text : {"0.0.0.0", "255.255.255.255", "127.0.0.1", "1.2.3.4"}) {
+	for (const char* text : {"0.0.0.0", "255.255.255.255", "127.0.0.1", "192.10.2.1"}) {
 		IpAddress ip;
 		EXPECT(IpAddress::parse(text, ip), Ok);
 		CHECK(!ip.v6);
@@ -65,12 +66,32 @@ void test_ip() {
 	IpAddress ip;
 	EXPECT(IpAddress::parse("1.2.3.4", ip), Ok);
 	CHECK(ip.bytes[0] == 1 && ip.bytes[1] == 2 && ip.bytes[2] == 3 && ip.bytes[3] == 4);
-	for (const char* text : {"::", "::1", "2001:db8::1234", "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "::ffff:192.0.2.1"}) {
+	for (const char* text : {"::", "::1", "2001:db8::1", "2001:0db8:0000:0000:0000:0000:0000:0001",
+			"ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255",
+			"::ffff:192.0.2.1", "::ffff:0.0.0.0"}) {
 		EXPECT(IpAddress::parse(text, ip), Ok);
 		CHECK(ip.v6);
 	}
+	const std::array<unsigned char, 16> mapped{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255, 192, 10, 2, 1};
+	for (const char* text : {"::ffff:192.10.2.1", "0:0:0:0:0:FFFF:C00A:0201"}) {
+		EXPECT(IpAddress::parse(text, ip), Ok);
+		CHECK(ip.v6 && ip.bytes == mapped);
+	}
+	ip.bytes.fill(0xa5);
+	ip.v6 = false;
+	const IpAddress sentinel = ip;
+	EXPECT(IpAddress::parse("::ffff:192.010.2.1", ip), InvalidIp);
+	CHECK(ip.v6 == sentinel.v6 && ip.bytes == sentinel.bytes);
+	for (const char* text : {"192.010.2.1", "192.10.002.1", "192.10.2.256", "1..2.3", "1.2.3.4.",
+			"::ffff:192.10.2.01", "::ffff:192.00.2.1", "::ffff:256.10.2.1", "::ffff:192.10.2",
+			"::ffff:192.10.2.1.5", "::ffff:192..2.1", "::ffff:192.10.2.1.", "::ffff:192.a.2.1",
+			"1:::192.10.2.1", "1.2.3.4::192.10.2.1"}) {
+		EXPECT(IpAddress::parse(text, ip), InvalidIp);
+		CHECK(ip.v6 == sentinel.v6 && ip.bytes == sentinel.bytes);
+	}
 	for (const char* text : {"", "localhost", "example.com", "127.1", "1.2.3", "1.2.3.4.5", "256.1.1.1", "01.2.3.4", "0x7f000001", "2130706433", " 1.2.3.4", "1.2.3.4 ", "1.2.3.4:80", "1.2.3.4/32", "[::1]", "fe80::1%eth0", "fe80::1%1", "1:::2", "::g", "::1/128", "1:2:3:4:5:6:7:8:9"}) {
 		EXPECT(IpAddress::parse(text, ip), InvalidIp);
+		CHECK(ip.v6 == sentinel.v6 && ip.bytes == sentinel.bytes);
 	}
 	EXPECT(IpAddress::parse(std::string_view("1.2.3.4\0x", 9), ip), InvalidIp);
 	EXPECT(IpAddress::parse(std::string(4096, '1'), ip), InvalidIp);
@@ -253,7 +274,19 @@ void test_ip_databases() {
 			CHECK(text == (ipv4 ? "1.1.1.2" : "::1.1.1.2"));
 			Lookup missing;
 			EXPECT(Lookup::find(database, "2.3.4.5", missing), NoRecord);
-			if (ipv4) EXPECT(Lookup::find(database, "::1", missing), UnsupportedFamily);
+			if (ipv4) {
+				EXPECT(Lookup::find(database, "::1", missing), UnsupportedFamily);
+				EXPECT(Lookup::find(database, "::ffff:1.1.1.3", missing), UnsupportedFamily);
+			} else {
+				for (const char* ip : {"::1.1.1.3", "::ffff:1.1.1.3", "0:0:0:0:0:FFFF:0101:0103"}) {
+					auto mixed = lookup(database, ip);
+					CHECK(mixed.prefix == 127);
+					EXPECT(Lookup::find(database, "::ffff:1.01.1.3", mixed), InvalidIp);
+					CHECK(mixed.prefix == 127);
+					EXPECT(field(mixed, "/ip").string(text), Ok);
+					CHECK(text == "::1.1.1.2");
+				}
+			}
 		}
 		const std::string name = std::string("MaxMind-DB-test-ipv6-") + size + ".mmdb";
 		const auto database = open(name.c_str());

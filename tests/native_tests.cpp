@@ -153,6 +153,41 @@ void check_inline_stack_ceiling(PawnBridge& bridge) {
 	CHECK(call(separate_params) == Status::Ok && separate[3] == 0 && vm.at(output) == -1);
 	bridge.detach(&vm.amx);
 }
+
+void check_ip_natives(PawnBridge& bridge) {
+	Vm vm;
+	CHECK(bridge.attach(&vm.amx) == Status::Ok);
+	const auto mixed = (std::filesystem::path(MMDB_FIXTURE_DIR) / "MaxMind-DB-test-mixed-24.mmdb").string();
+	vm.string(name, "mixed");
+	vm.string(file, mixed);
+	CHECK(vm.call("mmdb_load", {name, file}) == Status::Ok);
+
+	constexpr cell sentinel = -12345;
+	for (const char* address : {"::ffff:192.010.2.1", "::ffff:1.01.1.3", "::ffff:1.1.1.03", "01.1.1.3",
+			"::ffff:1.256.1.3", "::ffff:1.1.3", "::ffff:1.1.1.3.5"}) {
+		vm.string(ip, address);
+		for (const char* function : {"mmdb_has_record", "mmdb_get_prefix"}) {
+			vm.at(out) = sentinel;
+			CHECK(vm.call(function, {name, ip, out}) == Status::InvalidIp);
+			CHECK(vm.at(out) == sentinel);
+		}
+	}
+	const auto check_hit = [&](const char* address, cell prefix) {
+		vm.string(ip, address);
+		vm.at(out) = sentinel;
+		CHECK(vm.call("mmdb_has_record", {name, ip, out}) == Status::Ok && vm.at(out) == 1);
+		CHECK(vm.call("mmdb_get_prefix", {name, ip, out}) == Status::Ok && vm.at(out) == prefix);
+	};
+	check_hit("1.1.1.3", 31);
+	check_hit("1.1.1.4", 30);
+	check_hit("::ffff:1.1.1.3", 127);
+	check_hit("0:0:0:0:0:FFFF:0101:0103", 127);
+	vm.string(ip, "::ffff:192.10.2.1");
+	CHECK(vm.call("mmdb_has_record", {name, ip, out}) == Status::Ok && vm.at(out) == 0);
+	vm.at(out) = sentinel;
+	CHECK(vm.call("mmdb_get_prefix", {name, ip, out}) == Status::NoRecord && vm.at(out) == sentinel);
+	bridge.detach(&vm.amx);
+}
 } // namespace
 
 int main() {
@@ -169,6 +204,7 @@ int main() {
 		}
 		CHECK(native_count() == 18);
 		check_inline_stack_ceiling(bridge);
+		check_ip_natives(bridge);
 
 		const auto is_loaded = native("mmdb_is_loaded").func;
 		constexpr auto cell_size = static_cast<cell>(sizeof(cell));
