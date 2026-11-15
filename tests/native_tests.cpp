@@ -1,5 +1,6 @@
 #include "pawn_bridge.hpp"
 #include "floating_point_environment.hpp"
+#include "reader_boundary.hpp"
 
 #include <algorithm>
 #include <array>
@@ -195,6 +196,59 @@ void check_ip_natives(PawnBridge& bridge) {
 	bridge.detach(&vm.amx);
 }
 
+void check_reader_errors(PawnBridge& bridge) {
+	using test::ReaderFault;
+	Vm vm;
+	CHECK(bridge.attach(&vm.amx) == Status::Ok);
+	const auto fixture = (std::filesystem::path(MMDB_FIXTURE_DIR) / "MaxMind-DB-test-nested.mmdb").u8string();
+	vm.string(name, "reader");
+	vm.string(file, {reinterpret_cast<const char*>(fixture.data()), fixture.size()});
+	vm.string(ip, "1.1.1.1");
+	CHECK(vm.call("mmdb_load", {name, file}) == Status::Ok);
+
+	constexpr cell sentinel = -12345;
+	constexpr auto cell_size = static_cast<cell>(sizeof(cell));
+	constexpr char leaf[] = "/map1/map2/array/0/map3/c";
+	struct Case { const char* token; ReaderFault fault; const char* path; };
+	for (const auto& entry : {
+			Case{"map2", ReaderFault::UnsupportedType, leaf},
+			Case{nullptr, ReaderFault::UnsupportedType, leaf},
+			Case{nullptr, ReaderFault::UnsupportedType, ""},
+			Case{"c", ReaderFault::UnsupportedType, leaf},
+			Case{nullptr, ReaderFault::NoData, leaf},
+			Case{"c", ReaderFault::InvalidData, leaf}}) {
+		{
+			const test::ScopedReaderFault fault(entry.token, entry.fault);
+			vm.string(path, entry.path);
+			for (const auto* function : {"mmdb_has_field", "mmdb_get_int", "mmdb_get_float",
+					"mmdb_get_bool", "mmdb_get_type", "mmdb_get_size"}) {
+				vm.at(out) = sentinel;
+				CHECK(vm.call(function, {name, ip, path, out}) == Status::DecoderError);
+				CHECK(vm.at(out) == sentinel);
+			}
+			for (const auto* function : {"mmdb_get_string", "mmdb_get_text"}) {
+				vm.at(out) = sentinel;
+				vm.at(text) = sentinel;
+				vm.at(text + cell_size) = sentinel;
+				CHECK(vm.call(function, {name, ip, path, text, 2, out}) == Status::DecoderError);
+				CHECK(vm.at(out) == sentinel && vm.at(text) == sentinel && vm.at(text + cell_size) == sentinel);
+			}
+		}
+
+		vm.string(path, leaf);
+		CHECK(vm.call("mmdb_has_field", {name, ip, path, out}) == Status::Ok && vm.at(out) == 1);
+		CHECK(vm.call("mmdb_get_int", {name, ip, path, out}) == Status::Ok && vm.at(out) == 3);
+	}
+
+	for (const char* missing : {"/map1/map2/array/0/map3/c/child", "/map1/map2/array/0/map3/absent"}) {
+		vm.string(path, missing);
+		vm.at(out) = sentinel;
+		CHECK(vm.call("mmdb_get_int", {name, ip, path, out}) == Status::NoField && vm.at(out) == sentinel);
+		CHECK(vm.call("mmdb_has_field", {name, ip, path, out}) == Status::Ok && vm.at(out) == 0);
+	}
+	bridge.detach(&vm.amx);
+}
+
 void check_floating_point_environment() {
 	constexpr std::uint32_t sentinel = 0x4b8ace11;
 	constexpr std::array binary32{
@@ -363,6 +417,7 @@ int main() {
 		CHECK(native_count() == 18);
 		check_inline_stack_ceiling(bridge);
 		check_ip_natives(bridge);
+		check_reader_errors(bridge);
 
 		const auto is_loaded = native("mmdb_is_loaded").func;
 		constexpr auto cell_size = static_cast<cell>(sizeof(cell));

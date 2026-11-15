@@ -1,4 +1,5 @@
 #include "core.hpp"
+#include "reader_boundary.hpp"
 
 #include <array>
 #include <chrono>
@@ -341,6 +342,49 @@ void test_referenced_containers() {
 	expect_failure("/subdivisions/01", Status::InvalidPath);
 }
 
+void test_reader_errors() {
+	using test::ReaderFault;
+	const auto found = lookup(open("MaxMind-DB-test-nested.mmdb"), "1.1.1.1");
+	constexpr char leaf[] = "/map1/map2/array/0/map3/c";
+	auto value = field(found, leaf);
+	const auto sentinel = value.data;
+	const auto expect_failure = [&](const char* path, Status status) {
+		CHECK(found.get(path, value) == status);
+		CHECK(value.data.has_data == sentinel.has_data && value.data.type == sentinel.type);
+		CHECK(value.data.uint32 == sentinel.uint32 && value.data.data_size == sentinel.data_size);
+		CHECK(value.data.offset == sentinel.offset && value.data.offset_to_next == sentinel.offset_to_next);
+	};
+
+	struct Case { const char* token; ReaderFault fault; const char* path; };
+	for (const auto& entry : {
+			Case{nullptr, ReaderFault::NoData, leaf},
+			Case{"map2", ReaderFault::NoData, leaf},
+			Case{nullptr, ReaderFault::InvalidData, leaf},
+			Case{"c", ReaderFault::InvalidData, leaf},
+			Case{nullptr, ReaderFault::UnsupportedType, ""},
+			Case{nullptr, ReaderFault::UnsupportedType, leaf},
+			Case{"map2", ReaderFault::UnsupportedType, "/map1/map2"},
+			Case{"map2", ReaderFault::UnsupportedType, leaf},
+			Case{"0", ReaderFault::UnsupportedType, leaf}}) {
+		{
+			const test::ScopedReaderFault fault(entry.token, entry.fault);
+			expect_failure(entry.path, Status::DecoderError);
+		}
+		EXPECT(found.get(leaf, value), Ok);
+		CHECK(value.data.type == MMDB_DATA_TYPE_UINT32 && value.data.uint32 == 3);
+	}
+
+	{
+		const test::ScopedReaderFault fault("c", ReaderFault::UnsupportedType);
+		expect_failure(leaf, Status::DecoderError);
+		CHECK(field(found, "/map1/map2/array/0/map3").data.type == MMDB_DATA_TYPE_MAP);
+		CHECK(field(found, "/map1/map2/array/0/map3/b").data.uint32 == 2);
+	}
+	expect_failure("/map1/map2/array/0/map3/c/child", Status::NoField);
+	expect_failure("/map1/map2/array/0/map3/absent", Status::NoField);
+	expect_failure("/map1/map2/array/1", Status::NoField);
+}
+
 void test_ip_databases() {
 	// A valid IPv6 record can cover embedded IPv4 at a prefix shorter than 96.
 	const auto broad = open("MaxMind-DB-no-ipv4-search-tree.mmdb");
@@ -489,7 +533,7 @@ int main(int argc, char** argv) {
 	try {
 		CHECK(std::filesystem::is_regular_file(fixtures / "MaxMind-DB-test-decoder.mmdb"));
 		test_ip(); test_path_and_utf8(); test_path_lookup_state(); test_conversion(); test_real_types();
-		test_referenced_containers(); test_ip_databases(); test_snapshot_and_sustained_queries();
+		test_referenced_containers(); test_reader_errors(); test_ip_databases(); test_snapshot_and_sustained_queries();
 		test_bad_databases();
 		std::cout << "PASS: " << checks << " checks\n";
 		return 0;
