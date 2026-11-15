@@ -65,6 +65,7 @@ struct Value {
 	Status string(std::string_view& out) const noexcept;
 	Status integer(std::int32_t& out) const noexcept;
 	Status floating(float& out) const noexcept;
+	Status floating_bits(std::uint32_t& out) const noexcept;
 	Status boolean(bool& out) const noexcept;
 	// Decimal for all integer types, lowercase hexadecimal for bytes.
 	Status text(std::string& out) const;

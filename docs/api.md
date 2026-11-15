@@ -41,7 +41,9 @@ Paths are JSON Pointers up to 1,024 bytes and 32 tokens. Array indices are zero-
 
 A readable, unpacked Pawn path longer than 1,024 bytes returns `MMDB_INVALID_ARGUMENT` while the bridge reads the input. The byte limit excludes the string terminator. A path longer than 1,024 bytes passed directly to the C++ parser or lookup returns `Status::InvalidPath`.
 
-`mmdb_get_int` accepts `int32` and unsigned integer types whose value fits a signed cell. `mmdb_get_text` preserves all integer values including `uint128`. Binary output uses two hexadecimal digits per byte, preserves zero bytes and supports up to 32,767 input bytes per call. Pawn strings cannot represent embedded NULs. `mmdb_get_string` validates UTF-8 and supports up to 1,048,575 source bytes. `mmdb_get_float` rejects non-finite values and magnitude outside the finite nonzero Pawn Float range. Double values within range round to the precision of a Pawn Float.
+`mmdb_get_int` accepts `int32` and unsigned integer types whose value fits a signed cell. `mmdb_get_text` preserves all integer values including `uint128`. Binary output uses two hexadecimal digits per byte, preserves zero bytes and supports up to 32,767 input bytes per call. Pawn strings cannot represent embedded NULs. `mmdb_get_string` validates UTF-8 and supports up to 1,048,575 source bytes.
+
+`mmdb_get_float` preserves the bits of every finite IEEE 754 binary32 value, including both signed zeros and all subnormals. Binary64 zeros retain their sign. Other binary64 values must have magnitude between the smallest positive binary32 subnormal (`2^-149`) and the largest finite binary32 value, inclusive, before rounding. Accepted binary64 values round to nearest binary32 with ties to even. Non-finite values and values outside those bounds return `MMDB_OUT_OF_RANGE` and leave the destination unchanged. The result is independent of the calling thread's x86/x64 floating-point rounding and precision controls, flush-to-zero (FTZ), and denormals-are-zero (DAZ). The native leaves those controls unchanged.
 
 ## Metadata and diagnostics
 
