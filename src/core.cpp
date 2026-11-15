@@ -226,6 +226,15 @@ static_assert(std::numeric_limits<float>::is_iec559 && std::numeric_limits<float
 static_assert(std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::digits == 53 &&
 	std::bit_cast<std::uint64_t>(1.0) == 0x3ff0000000000000ULL);
 
+template <typename Bits, typename Float>
+Bits read_float_bits(const Float& value) noexcept {
+	static_assert(sizeof(Bits) == sizeof(Float));
+	// GCC x86 can lower bit_cast from double to an x87 load in instrumented builds.
+	Bits bits;
+	std::memcpy(&bits, &value, sizeof(bits));
+	return bits;
+}
+
 std::uint32_t round_significand(std::uint64_t significand, unsigned shift) noexcept {
 	const auto retained = static_cast<std::uint32_t>(significand >> shift);
 	const auto halfway = std::uint64_t{1} << (shift - 1U);
@@ -236,14 +245,14 @@ std::uint32_t round_significand(std::uint64_t significand, unsigned shift) noexc
 
 Status Value::floating_bits(std::uint32_t& out) const noexcept {
 	if (data.type == MMDB_DATA_TYPE_FLOAT) {
-		const auto bits = std::bit_cast<std::uint32_t>(data.float_value);
+		const auto bits = read_float_bits<std::uint32_t>(data.float_value);
 		if ((bits & 0x7f800000U) == 0x7f800000U) return Status::OutOfRange;
 		out = bits;
 		return Status::Ok;
 	}
 	if (data.type != MMDB_DATA_TYPE_DOUBLE) return Status::TypeMismatch;
 
-	const auto bits = std::bit_cast<std::uint64_t>(data.double_value);
+	const auto bits = read_float_bits<std::uint64_t>(data.double_value);
 	const auto sign = static_cast<std::uint32_t>(bits >> 32U) & 0x80000000U;
 	const auto magnitude = bits & 0x7fffffffffffffffULL;
 	if (magnitude == 0) {
