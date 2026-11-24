@@ -12,7 +12,7 @@ Copy **MMDB.dll** (Windows x86) or **MMDB.so** (Linux x86) into the server's **c
 
 Compile [examples/geolocation.pwn](examples/geolocation.pwn) with the open.mp Pawn includes. It loads the City and ASN databases, reads the connecting player's address and looks up country and network information.
 
-~~~pawn
+```pawn
 #include <open.mp>
 #include <omp_mmdb>
 
@@ -44,7 +44,7 @@ public OnPlayerConnect(playerid) {
 
 	return 1;
 }
-~~~
+```
 
 ## Database Management
 

@@ -16,17 +16,17 @@ and uses Maxora 2.0's original handle table. Both used libmaxminddb 1.14.1
 five separately launched, paired trials with 5,000 measured operations per
 trial. All checksums matched. Host activity was uncontrolled.
 
-| Operation | Maxora mean / p99 | omp-mmdb mean / p99 |
-| --- | ---: | ---: |
-| Clock pair | 192 / 300 ns | 191 / 300 ns |
-| IPv4 and one field | 792 / 1,200 ns | 872 / 1,200 ns |
-| IPv6 and one field | 1,346 / 1,900 ns | 1,622 / 2,500 ns |
-| Missing IPv4 record | 404 / 700 ns | 468 / 700 ns |
-| Three nested fields with fresh record resolution | 2,177 / 3,200 ns | 3,295 / 4,700 ns |
-| Retained old result versus three direct calls | 1,831 / 2,600 ns | 2,746 / 4,500 ns |
-| One fresh lookup for three fields in both implementations | 2,430 / 3,500 ns | 2,111 / 3,600 ns |
-| IPv4 across four databases | 739 / 1,000 ns | 997 / 1,300 ns |
-| Load, query, replace, unload and read held snapshot | 1,256 / 2,633 µs | 1,161 / 2,715 µs |
+| Operation                                                 | Maxora mean / p99 | omp-mmdb mean / p99 |
+| --------------------------------------------------------- | ----------------: | ------------------: |
+| Clock pair                                                |      192 / 300 ns |        191 / 300 ns |
+| IPv4 and one field                                        |    792 / 1,200 ns |      872 / 1,200 ns |
+| IPv6 and one field                                        |  1,346 / 1,900 ns |    1,622 / 2,500 ns |
+| Missing IPv4 record                                       |      404 / 700 ns |        468 / 700 ns |
+| Three nested fields with fresh record resolution          |  2,177 / 3,200 ns |    3,295 / 4,700 ns |
+| Retained old result versus three direct calls             |  1,831 / 2,600 ns |    2,746 / 4,500 ns |
+| One fresh lookup for three fields in both implementations |  2,430 / 3,500 ns |    2,111 / 3,600 ns |
+| IPv4 across four databases                                |    739 / 1,000 ns |      997 / 1,300 ns |
+| Load, query, replace, unload and read held snapshot       |  1,256 / 2,633 µs |    1,161 / 2,715 µs |
 
 The older API resolves an IP once when creating a result and amortizes that
 search across field reads. The direct API resolves an IP for each call. The
@@ -53,11 +53,11 @@ The baseline executable SHA-256 was
 
 ## File size and first touch
 
-| Windows x86 dataset | File bytes | Addresses | Mean | p99 | p99.9 | Working set after |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| MaxMind decoder fixture, `/uint16` | 3,188 | 1 | 951 ns | 1,900 ns | 3,400 ns | 7,786,496 B |
-| Same fixture with sparse padding, `/uint16` | 1,073,758,208 | 1 | 985 ns | 1,700 ns | 5,500 ns | 7,892,992 B |
-| DB-IP City Lite, `/country/iso_code` | 126,873,350 | 4,096 | 1,821 ns | 3,100 ns | 28,100 ns | 32,059,392 B |
+| Windows x86 dataset                         |    File bytes | Addresses |     Mean |      p99 |     p99.9 | Working set after |
+| ------------------------------------------- | ------------: | --------: | -------: | -------: | --------: | ----------------: |
+| MaxMind decoder fixture, `/uint16`          |         3,188 |         1 |   951 ns | 1,900 ns |  3,400 ns |       7,786,496 B |
+| Same fixture with sparse padding, `/uint16` | 1,073,758,208 |         1 |   985 ns | 1,700 ns |  5,500 ns |       7,892,992 B |
+| DB-IP City Lite, `/country/iso_code`        |   126,873,350 |     4,096 | 1,821 ns | 3,100 ns | 28,100 ns |      32,059,392 B |
 
 Each row represents 100,000 measured lookups. The first two workloads read
 the same record near the beginning of each file. The sparse result verifies

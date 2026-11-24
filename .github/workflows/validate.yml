@@ -27,4 +27,3 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ',') }}
         run: test "$RESULTS" = 'success,success,success,success'
-
