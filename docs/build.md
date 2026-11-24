@@ -26,6 +26,12 @@ cmake --install build --prefix stage
 
 The stage contains the component under `components/` and the Pawn header under `include/`. Use `-DMMDB_BUILD_COMPONENT=OFF` for host builds that exercise the C++ core and Pawn memory boundary without compiling the x86 component.
 
+## Generated libmaxminddb reader
+
+CMake applies the IEEE 754 decoder substitutions and the cleanup fixes to a build-directory copy of `maxminddb.c`. Each substitution requires exactly one match and fails configuration if its expected source changes. Extending the existing generator keeps the reviewed submodule revision intact and avoids maintaining a separate fork or a source-patching step. [Audit 5.2.3B findings](https://github.com/itskoleban/omp-mmdb/issues/24#issuecomment-7114325886)
+
+The upstream libmaxminddb fixes belong in description metadata initialization and cleanup, and in Windows mapping acquisition, which should publish the view only after a successful `WSAStartup`. Drop the cleanup substitutions when a reviewed submodule update incorporates both fixes.
+
 ## Sanitizers and fuzzing
 
 For Linux Clang, use `-DMMDB_SANITIZERS=ON -DMMDB_BUILD_FUZZERS=ON -DMMDB_BUILD_COMPONENT=OFF`, then run CTest and the `omp_mmdb_parser_fuzz` and `omp_mmdb_native_fuzz` targets with copies of the seed corpora. Use `-DMMDB_THREAD_SANITIZER=ON` in a separate build. ThreadSanitizer covers concurrent immutable snapshots during replacement.
