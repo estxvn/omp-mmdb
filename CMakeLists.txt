@@ -112,6 +112,23 @@ endif()
 set(MMDB_FIXTURE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/libmaxminddb/t/maxmind-db/test-data" CACHE PATH "Redistributable MaxMind synthetic fixtures")
 if(MMDB_BUILD_TESTS)
 	enable_testing()
+	# Compile the generated reader with fault injection only for the cleanup tests.
+	add_library(omp_mmdb_cleanup_reader OBJECT tests/reader_cleanup_faults.c)
+	target_include_directories(omp_mmdb_cleanup_reader PRIVATE "${CMAKE_CURRENT_BINARY_DIR}"
+		"$<TARGET_PROPERTY:maxminddb,INCLUDE_DIRECTORIES>")
+	target_compile_definitions(omp_mmdb_cleanup_reader PRIVATE "$<TARGET_PROPERTY:maxminddb,COMPILE_DEFINITIONS>")
+	set_target_properties(omp_mmdb_cleanup_reader PROPERTIES C_STANDARD 99 C_EXTENSIONS OFF)
+	add_executable(omp_mmdb_reader_cleanup_tests tests/reader_cleanup_tests.cpp)
+	target_link_libraries(omp_mmdb_reader_cleanup_tests PRIVATE omp_mmdb_cleanup_reader omp_mmdb_core)
+	target_compile_definitions(omp_mmdb_reader_cleanup_tests PRIVATE MMDB_FIXTURE_DIR="${MMDB_FIXTURE_DIR}")
+	omp_mmdb_target(omp_mmdb_reader_cleanup_tests)
+	add_test(NAME reader_cleanup COMMAND omp_mmdb_reader_cleanup_tests)
+	set_tests_properties(reader_cleanup PROPERTIES TIMEOUT 30)
+	if(WIN32)
+		add_test(NAME reader_cleanup_winsock COMMAND omp_mmdb_reader_cleanup_tests winsock)
+		set_tests_properties(reader_cleanup_winsock PROPERTIES TIMEOUT 30)
+	endif()
+
 	# Redirect the reader only in the two executables that inject its responses.
 	add_library(omp_mmdb_test_core OBJECT src/core.cpp)
 	target_link_libraries(omp_mmdb_test_core PUBLIC omp_mmdb_core)
