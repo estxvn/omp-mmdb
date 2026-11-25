@@ -28,9 +28,9 @@ The service is synchronous on the Pawn execution thread. There are no worker thr
 
 ## New Pawn API
 
-The public include remains #include <maxora>; the 1.x MMDB_* API is removed. All 19 natives return an explicit MaxoraStatus, where MAXORA_OK=0. MaxoraDb and MaxoraResult tags distinguish output handles. There is no mutable last-error buffer.
+The public include remains #include <maxora>; the 1.x MMDB\_\* API is removed. All 19 natives return an explicit MaxoraStatus, where MAXORA_OK=0. MaxoraDb and MaxoraResult tags distinguish output handles. There is no mutable last-error buffer.
 
-Resource natives: Load, Reload, Unload, IsValid, Lookup, Release. Field natives: GetString, GetText, GetInt, GetFloat, GetBoolean, GetType, GetSize, HasField, GetPrefix. Metadata/diagnostics: GetDatabaseType, GetBuildEpoch, GetIpVersion, GetStatusMessage. Each name has the Maxora_ prefix. Seven stock helpers cover country code, English city name, subdivision code, ASN, organization, latitude and longitude.
+Resource natives: Load, Reload, Unload, IsValid, Lookup, Release. Field natives: GetString, GetText, GetInt, GetFloat, GetBoolean, GetType, GetSize, HasField, GetPrefix. Metadata/diagnostics: GetDatabaseType, GetBuildEpoch, GetIpVersion, GetStatusMessage. Each name has the Maxora\_ prefix. Seven stock helpers cover country code, English city name, subdivision code, ASN, organization, latitude and longitude.
 
 Paths use JSON Pointer syntax, including escaped slash/tilde, empty keys, arrays and root selection. Limits are 1,024 UTF-8 bytes and 32 tokens. All supported logical MMDB types can be identified. Integers wider than a Pawn cell are available as exact decimal text; bytes are lowercase hex. Containers can be inspected by type/size and addressed with known paths; unknown map-key enumeration and whole-container serialization are outside the API.
 
@@ -49,13 +49,13 @@ AMX host object/allocation descriptors are trusted runtime state. AMX cannot rev
 
 ## Pinned dependencies and platforms
 
-| Dependency | Version/immutable commit |
-| --- | --- |
-| libmaxminddb |1.14.1;4a3d17a621c0ebcb81498fd34d313f67fd940ab5 |
-| Official open.mp SDK |08cc69a32d96c0eb8fe063d26c78259e54ca853f |
-| Official Pawn compiler |3.10.11;29f1a8c7fd2e01929807cd8c50353fbc93bbd651 |
-| Synthetic MaxMind-DB fixtures |dc32db5525f9c42ab7006ab3f13c69330b814dd1 |
-| Tested open.mp runtime |v1.6.7.3218; archive digests pinned in download_runtime.py |
+| Dependency                    | Version/immutable commit                                   |
+| ----------------------------- | ---------------------------------------------------------- |
+| libmaxminddb                  | 1.14.1;4a3d17a621c0ebcb81498fd34d313f67fd940ab5            |
+| Official open.mp SDK          | 08cc69a32d96c0eb8fe063d26c78259e54ca853f                   |
+| Official Pawn compiler        | 3.10.11;29f1a8c7fd2e01929807cd8c50353fbc93bbd651           |
+| Synthetic MaxMind-DB fixtures | dc32db5525f9c42ab7006ab3f13c69330b814dd1                   |
+| Tested open.mp runtime        | v1.6.7.3218; archive digests pinned in download_runtime.py |
 
 C++17 and CMake 3.24+ are used. Windows x86 and Linux x86 are deployment targets with actual module-loading tests. Windows local validation used MSVC 19.51.36248.0 and Windows SDK 10.0.26100.0; CI also validates its hosted compiler configurations. Windows/Linux x64 core/native tests are development configurations, not additional distributed component targets. ARM and other architectures are not advertised. Hosted OS images/package updates are recorded but not claimed bit-for-bit pinned.
 
@@ -75,12 +75,12 @@ Eight interleaved workloads cover timer floor, IPv4, IPv6, missing records, thre
 
 Five Windows x86 trials measured 1,000 operations per workload per trial. Below are medians of per-trial statistics, not pooled percentiles:
 
-| Workload | Mean Âµs | p50 Âµs | p95 Âµs | p99 Âµs | Timed operations/s |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| IPv4 lookup/field/release |1.976 |1.800 |4.100 |5.200 |506,124 |
-| IPv6 lookup/field/release |3.279 |3.000 |5.400 |7.200 |304,999 |
-| Nested 3 fields, temporary result |3.383 |3.200 |6.100 |8.100 |295,639 |
-| Nested 3 fields, retained result |1.795 |1.800 |2.500 |3.500 |557,196 |
+| Workload                          | Mean Âµs | p50 Âµs | p95 Âµs | p99 Âµs | Timed operations/s |
+| --------------------------------- | -------: | ------: | ------: | ------: | -----------------: |
+| IPv4 lookup/field/release         |    1.976 |   1.800 |   4.100 |   5.200 |            506,124 |
+| IPv6 lookup/field/release         |    3.279 |   3.000 |   5.400 |   7.200 |            304,999 |
+| Nested 3 fields, temporary result |    3.383 |   3.200 |   6.100 |   8.100 |            295,639 |
+| Nested 3 fields, retained result  |    1.795 |   1.800 |   2.500 |   3.500 |            557,196 |
 
 The retained-result workload was faster in all five local fixture trials, supporting its API rationale. These small, cache-friendly synthetic runs used a host with concurrent engineering activity and are not a production capacity promise or final RC performance qualification. Full ranges, environment, raw files and provenance limitations are in docs/validation/benchmark-review.md.
 
@@ -98,10 +98,10 @@ Candidate publication and downloaded-artifact test results, final package digest
 
 The candidate workflow completed successfully for commit `c9c5fdd7470f67a93d39afbb3be41c96922eadc3`. Prerelease: https://github.com/itskoleban/Maxora/releases/tag/v2.0.0-rc.1 . Both published ZIP packages were downloaded, verified and their extracted binaries passed actual open.mp integration on Windows and Linux. Packages were downloaded again locally and all manifest members/checksums verified.
 
-| Published package | SHA-256 |
-| --- | --- |
-| Windows x86 | 94e8b09a6b96ab4ed4dcebfcd5e088942875f1eee54a81ab0efd202dde9fe7b2 |
-| Linux x86 | bbfb2d4ee000cf19883f5261a31f76309b3c66d53148e458b854b1730ce6d6fd |
+| Published package | SHA-256                                                          |
+| ----------------- | ---------------------------------------------------------------- |
+| Windows x86       | 94e8b09a6b96ab4ed4dcebfcd5e088942875f1eee54a81ab0efd202dde9fe7b2 |
+| Linux x86         | bbfb2d4ee000cf19883f5261a31f76309b3c66d53148e458b854b1730ce6d6fd |
 
 The final continuous 24-hour test is **running, not passed**. It started on November 2 at 16:38:11 America/Bogota (21:38:11 UTC), with the published Windows DLL `2954df7df59969fb99a8bde6b16bca3333413fc492ce6fcf366aef75f7d11112`. It uses the exact candidate harness, pinned runtime archive and synthetic fixtures and samples resident server memory once per second. Normal completion is expected after November 3 at about 16:38 America/Bogota, subject to the machine remaining available. Status is stored in outputs/Maxora-rc1-24h-soak.status.json; final results will be outputs/Maxora-rc1-24h-soak.json. A fresh workload log and live process were verified after startup.
 
